@@ -45,6 +45,13 @@ jobs:
           java-version: '17'
           cache: maven
 
+      # Pin Maven: Tycho 4.0.12 fails to bind MavenTargetLocationFactory on some
+      # of the runner's bundled Maven releases.
+      - name: Set up Maven 3.9.6
+        uses: stCarolas/setup-maven@v5
+        with:
+          maven-version: '3.9.6'
+
       - name: Install build tools
         run: |
           sudo apt-get update
