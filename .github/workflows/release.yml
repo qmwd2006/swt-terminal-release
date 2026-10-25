@@ -65,9 +65,11 @@ jobs:
         working-directory: src
         run: mvn -B verify -Pintegration
 
-      - name: Package standalone jar
+      # install (not package): the plugin build unpacks the shaded jar from the
+      # local repository, so the artifact must be installed first.
+      - name: Install standalone jar
         working-directory: src
-        run: mvn -B package -DskipTests
+        run: mvn -B install -DskipTests
 
       - name: Build Eclipse plugin
         working-directory: src/eclipse-plugin
