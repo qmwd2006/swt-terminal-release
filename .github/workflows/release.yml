@@ -1,0 +1,95 @@
+name: Release
+
+# Builds the artifacts from the private source repository and publishes them:
+# a standalone AppImage, the Eclipse plugin jar, and the plain fat jar.
+#
+# Triggered by a repository_dispatch from the source repository on every push,
+# or manually (useful for a first run or a re-release).
+on:
+  repository_dispatch:
+    types: [source-updated]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit/branch/tag in qmwd2006/swt-terminal
+        required: false
+        default: master
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve source ref
+        id: src
+        run: |
+          ref='${{ github.event.client_payload.ref }}'
+          if [ -z "$ref" ]; then ref='${{ github.event.inputs.ref }}'; fi
+          if [ -z "$ref" ]; then ref='master'; fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          repository: qmwd2006/swt-terminal
+          ref: ${{ steps.src.outputs.ref }}
+          ssh-key: ${{ secrets.SOURCE_SSH_KEY }}
+          path: src
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential
+
+      - name: Build native library
+        working-directory: src
+        run: ./build-native.sh
+
+      - name: Run tests (unit + PTY integration)
+        working-directory: src
+        run: mvn -B verify -Pintegration
+
+      - name: Package standalone jar
+        working-directory: src
+        run: mvn -B package -DskipTests
+
+      - name: Build Eclipse plugin
+        working-directory: src/eclipse-plugin
+        run: mvn -B verify
+
+      - name: Build AppImage
+        run: scripts/build-appimage.sh src
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          cp src/target/swt-terminal-*-all.jar dist/
+          cp src/eclipse-plugin/target/com.cleanssh.swtterm.eclipse-*.jar dist/
+          ls -la dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: swt-terminal build ${{ github.run_number }}
+          body: |
+            Automated build of `swt-terminal`.
+
+            Source commit: `${{ steps.src.outputs.ref }}`
+
+            - `swt-terminal-x86_64.AppImage` — standalone terminal (needs Java 17 on PATH)
+            - `com.cleanssh.swtterm.eclipse-*.jar` — Eclipse plugin (Eclipse 4.29+, i.e. 2023-09 or newer; drop into `dropins/`)
+            - `swt-terminal-*-all.jar` — standalone jar (needs Java 17)
+          files: |
+            dist/swt-terminal-*-x86_64.AppImage
+            dist/com.cleanssh.swtterm.eclipse-*.jar
+            dist/swt-terminal-*-all.jar
