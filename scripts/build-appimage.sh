@@ -44,16 +44,25 @@ exec java -jar "$HERE/usr/lib/swt-terminal/swt-terminal.jar" "$@"
 EOF
 chmod +x "$APP/AppRun"
 
-cat > "$APP/swt-terminal.desktop" <<'EOF'
+# APP_VERSION is supplied by the workflow (e.g. v0.1.0-20261025-de49453);
+# fall back to the jar version so a manual run still produces valid metadata.
+VERSION_STRING="${APP_VERSION:-$VERSION}"
+
+cat > "$APP/swt-terminal.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=SWT Terminal
-Comment=Terminal emulator (SWT)
+Comment=Terminal emulator (SWT) $VERSION_STRING
 Exec=swt-terminal
 Icon=swt-terminal
 Terminal=false
 Categories=System;TerminalEmulator;
+X-AppImage-Version=$VERSION_STRING
 EOF
+
+# Convenience copy of the version next to the jar, visible after
+# --appimage-extract and in the AppImage's usr/lib tree.
+printf '%s\n' "$VERSION_STRING" > "$APP/usr/lib/swt-terminal/version.txt"
 
 TOOL=appimagetool-x86_64.AppImage
 if [ ! -x "$TOOL" ]; then

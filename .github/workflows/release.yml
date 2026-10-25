@@ -44,6 +44,20 @@ jobs:
           ssh-key: ${{ secrets.SOURCE_SSH_KEY }}
           path: src
 
+      # Version data: short SHA, commit date and the CI build number, passed to
+      # Maven so the jar and plugin report the same string as the release.
+      - name: Resolve version
+        id: ver
+        working-directory: src
+        run: |
+          sha=$(git rev-parse --short HEAD)
+          date=$(git show -s --format=%cd --date=format:%Y%m%d HEAD)
+          base=$(sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p' pom.xml | head -n1)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "date=$date" >> "$GITHUB_OUTPUT"
+          echo "display=v${base}-${date}-${sha}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${base}-${date}-${sha}" >> "$GITHUB_OUTPUT"
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -69,19 +83,31 @@ jobs:
 
       - name: Run tests (unit + PTY integration)
         working-directory: src
-        run: mvn -B verify -Pintegration
+        run: >-
+          mvn -B verify -Pintegration
+          -Dapp.commit=${{ steps.ver.outputs.sha }}
+          -Dapp.commitDate=${{ steps.ver.outputs.date }}
+          -Dapp.build=${{ github.run_number }}
 
       # install (not package): the plugin build unpacks the shaded jar from the
       # local repository, so the artifact must be installed first.
       - name: Install standalone jar
         working-directory: src
-        run: mvn -B install -DskipTests
+        run: >-
+          mvn -B install -DskipTests
+          -Dapp.commit=${{ steps.ver.outputs.sha }}
+          -Dapp.commitDate=${{ steps.ver.outputs.date }}
+          -Dapp.build=${{ github.run_number }}
 
       - name: Build Eclipse plugin
         working-directory: src/eclipse-plugin
         run: mvn -B verify
+        env:
+          APP_VERSION: ${{ steps.ver.outputs.display }}
 
       - name: Build AppImage
+        env:
+          APP_VERSION: ${{ steps.ver.outputs.display }}
         run: release/scripts/build-appimage.sh src
 
       - name: Collect artifacts
@@ -94,11 +120,12 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: swt-terminal build ${{ github.run_number }}
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: swt-terminal ${{ steps.ver.outputs.display }}
           body: |
             Automated build of `swt-terminal`.
 
+            Version: `${{ steps.ver.outputs.display }}`
             Source commit: `${{ steps.src.outputs.ref }}`
 
             - `swt-terminal-x86_64.AppImage` — standalone terminal (needs Java 17 on PATH)
