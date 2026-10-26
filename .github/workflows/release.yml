@@ -27,6 +27,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: release
+          # Tags list is needed to find the previous release for the changelog.
+          fetch-depth: 0
 
       - name: Resolve source ref
         id: src
@@ -43,6 +45,8 @@ jobs:
           ref: ${{ steps.src.outputs.ref }}
           ssh-key: ${{ secrets.SOURCE_SSH_KEY }}
           path: src
+          # Full history, to summarise the commits since the previous release.
+          fetch-depth: 0
 
       # Version data: short SHA, commit date and the CI build number, passed to
       # Maven so the jar and plugin report the same string as the release.
@@ -57,6 +61,19 @@ jobs:
           echo "date=$date" >> "$GITHUB_OUTPUT"
           echo "display=v${base}-${date}-${sha}" >> "$GITHUB_OUTPUT"
           echo "tag=v${base}-${date}-${sha}" >> "$GITHUB_OUTPUT"
+
+      # The previous release tag lives in this repository (the source commit is
+      # in src/), so resolve it here and let the notes step use its sha.
+      - name: Find previous release
+        id: prev
+        run: |
+          prev=$(git -C release tag --list 'v*' --sort=-creatordate | head -n1)
+          echo "tag=$prev" >> "$GITHUB_OUTPUT"
+          if [ -n "$prev" ]; then
+            echo "sha=${prev##*-}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -117,21 +134,62 @@ jobs:
           cp src/eclipse-plugin/target/com.cleanssh.swtterm.eclipse-*.jar dist/
           ls -la dist
 
+      # A short Chinese "Summary:" trailer in the commit message becomes the
+      # release note; no raw commit list is shown.
+      - name: Build release notes
+        run: |
+          prev_sha='${{ steps.prev.outputs.sha }}'
+          prev_tag='${{ steps.prev.outputs.tag }}'
+          summary=""
+          if [ -n "$prev_sha" ] && git -C src cat-file -e "$prev_sha^{commit}" 2>/dev/null; then
+            # Walk the commits newest-first and take the Summary of the first
+            # fix/feat, so docs/chore bookkeeping does not become the note.
+            summary=$(git -C src log "$prev_sha"..HEAD \
+              --pretty=format:'%s%n%b%n@@END@@' \
+              | awk '
+                  /^@@END@@$/ { if (kind ~ /^(fix|feat):/ && sum != "" && !done) { print sum; done=1 } kind=""; sum=""; next }
+                  kind == "" { kind = $0; next }
+                  /^Summary:/ { sub(/^Summary:[ \t]*/, ""); sum = $0 }
+                ')
+            if [ -z "$summary" ]; then
+              summary=$(git -C src log "$prev_sha"..HEAD --pretty=%b \
+                | grep -m1 '^Summary:' | sed 's/^Summary:[[:space:]]*//')
+            fi
+          if [ -z "$summary" ]; then
+              summary=$(git -C src log "$prev_sha"..HEAD --pretty=%b \
+                | grep -m1 '^Summary:' | sed 's/^Summary:[[:space:]]*//')
+            fi
+          fi
+          if [ -z "$summary" ]; then
+            if [ -z "$prev_tag" ]; then summary="首个构建。"; else summary="例行构建。"; fi
+          fi
+          heading="### 变更"
+          if [ -n "$prev_tag" ]; then heading="### 相对 $prev_tag 的变更"; fi
+          {
+            echo "Automated build of \`swt-terminal\`."
+            echo
+            echo "Version: \`${{ steps.ver.outputs.display }}\`"
+            echo "Build: \`${{ github.run_number }}\`"
+            echo "Source commit: \`${{ steps.src.outputs.ref }}\`"
+            echo
+            echo "$heading"
+            echo
+            echo "$summary"
+            echo
+            echo "### Artifacts"
+            echo
+            echo "- \`swt-terminal-*-x86_64.AppImage\` — standalone terminal (needs Java 17+ on PATH)"
+            echo "- \`com.cleanssh.swtterm.eclipse-*.jar\` — Eclipse plugin (Eclipse 4.29+; drop into \`dropins/\`)"
+            echo "- \`swt-terminal-*-all.jar\` — standalone jar (needs Java 17+)"
+          } > dist/RELEASE_NOTES.md
+          cat dist/RELEASE_NOTES.md
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: swt-terminal ${{ steps.ver.outputs.display }} (build ${{ github.run_number }})
-          body: |
-            Automated build of `swt-terminal`.
-
-            Version: `${{ steps.ver.outputs.display }}`
-            Build: `${{ github.run_number }}`
-            Source commit: `${{ steps.src.outputs.ref }}`
-
-            - `swt-terminal-x86_64.AppImage` — standalone terminal (needs Java 17 on PATH)
-            - `com.cleanssh.swtterm.eclipse-*.jar` — Eclipse plugin (Eclipse 4.29+, i.e. 2023-09 or newer; drop into `dropins/`)
-            - `swt-terminal-*-all.jar` — standalone jar (needs Java 17)
+          body_path: dist/RELEASE_NOTES.md
           files: |
             dist/swt-terminal-*-x86_64.AppImage
             dist/com.cleanssh.swtterm.eclipse-*.jar
