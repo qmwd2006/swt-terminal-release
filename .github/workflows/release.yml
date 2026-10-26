@@ -121,11 +121,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
-          name: swt-terminal ${{ steps.ver.outputs.display }}
+          name: swt-terminal ${{ steps.ver.outputs.display }} (build ${{ github.run_number }})
           body: |
             Automated build of `swt-terminal`.
 
             Version: `${{ steps.ver.outputs.display }}`
+            Build: `${{ github.run_number }}`
             Source commit: `${{ steps.src.outputs.ref }}`
 
             - `swt-terminal-x86_64.AppImage` — standalone terminal (needs Java 17 on PATH)
