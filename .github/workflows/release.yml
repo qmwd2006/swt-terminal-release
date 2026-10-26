@@ -147,7 +147,7 @@ jobs:
             summary=$(git -C src log "$prev_sha"..HEAD \
               --pretty=format:'%s%n%b%n@@END@@' \
               | awk '
-                  /^@@END@@$/ { if (kind ~ /^(fix|feat):/ && sum != "" && !done) { print sum; done=1 } kind=""; sum=""; next }
+                  /^@@END@@$/ { if (kind ~ /^(fix|feat)(\([^)]*\))?:/ && sum != "" && !done) { print sum; done=1 } kind=""; sum=""; next }
                   kind == "" { kind = $0; next }
                   /^Summary:/ { sub(/^Summary:[ \t]*/, ""); sum = $0 }
                 ')
