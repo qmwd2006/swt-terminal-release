@@ -37,6 +37,8 @@ jobs:
           if [ -z "$ref" ]; then ref='${{ github.event.inputs.ref }}'; fi
           if [ -z "$ref" ]; then ref='master'; fi
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          # The parent tip from the push event (empty for manual dispatches).
+          echo "before=${{ github.event.client_payload.before }}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout source
         uses: actions/checkout@v4
@@ -47,6 +49,44 @@ jobs:
           path: src
           # Full history, to summarise the commits since the previous release.
           fetch-depth: 0
+
+      # Serialise releases by waiting for the release of the previous push tip.
+      # Without this, two overlapping runs can publish out of order (GitHub lists
+      # releases newest-created first), putting an older commit above a newer one.
+      # This runs before "Find previous release" so the changelog range and the
+      # published order both follow the push order.
+      - name: Wait for the previous release
+        run: |
+          before='${{ steps.src.outputs.before }}'
+          if [ -z "$before" ] || [[ "$before" =~ ^0+$ ]]; then
+            echo "No previous commit; nothing to wait for."
+            exit 0
+          fi
+          if ! git -C src cat-file -e "$before^{commit}" 2>/dev/null; then
+            echo "Previous commit $before is not in this history (force push?); not waiting."
+            exit 0
+          fi
+          short=$(git -C src rev-parse --short "$before")
+          prev=$(git -C release tag --list 'v*' --sort=-creatordate | head -n1)
+          if [ -n "$prev" ]; then
+            prev_sha=${prev##*-}
+            if git -C src cat-file -e "$prev_sha^{commit}" 2>/dev/null \
+              && git -C src merge-base --is-ancestor "$before" "$prev_sha"; then
+              echo "Previous commit is already covered by $prev."
+              git -C release fetch --tags --force --quiet origin || true
+              exit 0
+            fi
+          fi
+          echo "Waiting for the release of $short ..."
+          for attempt in $(seq 1 120); do
+            if git -C release ls-remote --tags origin "refs/tags/v*-${short}" | grep -q .; then
+              echo "Release of $short is available."
+              git -C release fetch --tags --force --quiet origin || true
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for the release of $short; continuing." >&2
 
       # Version data: short SHA, commit date and the CI build number, passed to
       # Maven so the jar and plugin report the same string as the release.
