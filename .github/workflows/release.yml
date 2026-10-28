@@ -177,6 +177,11 @@ jobs:
             com.cleanssh.swtterm.eclipse-*.jar > SHA256SUMS)
           ls -la dist
 
+      - name: Verify artifacts
+        run: |
+          (cd dist && sha256sum -c SHA256SUMS)
+          APPIMAGE_EXTRACT_AND_RUN=1 dist/*.AppImage --version
+
       # A short Chinese "Summary:" trailer in the commit message becomes the
       # release note; no raw commit list is shown.
       - name: Build release notes
@@ -190,7 +195,7 @@ jobs:
             summary=$(git -C src log "$prev_sha"..HEAD \
               --pretty=format:'%s%n%b%n@@END@@' \
               | awk '
-                  /^@@END@@$/ { if (kind ~ /^(fix|feat)(\([^)]*\))?:/ && sum != "" && !done) { print sum; done=1 } kind=""; sum=""; next }
+                  /^@@END@@$/ { if (kind ~ /^(fix|feat)(\([^)]*\))?:/ && sum != "") print "- " sum; kind=""; sum=""; next }
                   kind == "" { kind = $0; next }
                   /^Summary:/ { sub(/^Summary:[ \t]*/, ""); sum = $0 }
                 ')
