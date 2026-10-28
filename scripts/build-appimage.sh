@@ -141,7 +141,7 @@ echo "created $DIST/$APPIMAGE_NAME"
 ZSYNC="$DIST/$APPIMAGE_NAME.zsync"
 if command -v zsyncmake >/dev/null 2>&1; then
   if [ ! -f "$ZSYNC" ]; then
-    zsyncmake -q -u "$APPIMAGE_NAME" -o "$ZSYNC" "$DIST/$APPIMAGE_NAME"
+    zsyncmake -u "$APPIMAGE_NAME" -o "$ZSYNC" "$DIST/$APPIMAGE_NAME"
   fi
   echo "created $ZSYNC"
 else
