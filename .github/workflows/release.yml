@@ -224,10 +224,28 @@ jobs:
           } > dist/RELEASE_NOTES.md
           cat dist/RELEASE_NOTES.md
 
+      # GitHub orders the Releases page by created_at, which is the committer
+      # date of the commit the tag points to. Stamp an empty commit at publish
+      # time and point the tag there so every release gets a unique, increasing
+      # created_at instead of the release repository's HEAD date.
+      - name: Stamp release commit
+        id: stamp
+        run: |
+          stamp=$(GIT_AUTHOR_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                  GIT_COMMITTER_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                  git -C release -c user.name=release-bot \
+                    -c user.email=release-bot@users.noreply.github.com \
+                    commit-tree "$(git -C release rev-parse HEAD^{tree})" \
+                    -p "$(git -C release rev-parse HEAD)" \
+                    -m "release stamp ${{ steps.ver.outputs.tag }}")
+          git -C release push --force origin "$stamp:refs/heads/release-stamps"
+          echo "sha=$stamp" >> "$GITHUB_OUTPUT"
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ steps.stamp.outputs.sha }}
           name: swt-terminal ${{ steps.ver.outputs.display }} (build ${{ github.run_number }})
           body_path: dist/RELEASE_NOTES.md
           files: |
