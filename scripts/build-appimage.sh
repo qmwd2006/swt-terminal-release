@@ -128,8 +128,8 @@ if [ ! -f "$RUNTIME" ]; then
 fi
 printf '%s  %s\n' "$RUNTIME_SHA256" "$RUNTIME" | sha256sum -c -
 
-APPIMAGE_NAME="swt-terminal-$VERSION-$ARCH_NAME.AppImage"
-UPDATE_INFO="gh-releases-zsync|qmwd2006|swt-terminal-release|latest|$APPIMAGE_NAME.zsync"
+APPIMAGE_NAME="swt-terminal-$VERSION_STRING-$ARCH_NAME.AppImage"
+UPDATE_INFO="gh-releases-zsync|qmwd2006|swt-terminal-release|latest|swt-terminal-*-$ARCH_NAME.AppImage.zsync"
 
 # appimagetool writes the .zsync next to the output when zsyncmake is present.
 # Its own AppStream check calls validate-tree without --no-net, which can block
@@ -150,7 +150,7 @@ fi
 
 # FUSE-free fallback for systems that cannot mount AppImages. Keep the same
 # AppDir layout so AppRun, the icon and the desktop file remain usable.
-TARBALL="$DIST/swt-terminal-$VERSION-$ARCH_NAME.tar.gz"
+TARBALL="$DIST/swt-terminal-$VERSION_STRING-$ARCH_NAME.tar.gz"
 tar -C "$APP" --sort=name --owner=0 --group=0 --numeric-owner \
   -czf "$TARBALL" .
 echo "created $TARBALL"

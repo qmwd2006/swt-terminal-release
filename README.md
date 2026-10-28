@@ -34,8 +34,9 @@ and the pty native library, and extracts them at startup, so no further setup is
 needed.
 
 The AppImage includes AppStream metadata and a 256 px icon, so desktop
-environments can integrate it. It also carries zsync update information;
-AppImageUpdate can use the matching `.zsync` asset from the latest release.
+environments can integrate it. It also carries zsync update information that
+matches any versioned AppImage in the latest release, so AppImageUpdate keeps
+working after the application version changes.
 
 ### No FUSE?
 
