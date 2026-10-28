@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.cleanssh.swtterm</id>
+  <name>SWT Terminal</name>
+  <summary>Terminal emulator built with SWT</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+
+  <description>
+    <p>
+      A desktop terminal emulator with tabs, scrollback search, inline images,
+      CJK-aware layout and a real PTY.
+    </p>
+    <p>
+      It bundles its own Java runtime in the AppImage, but still uses the
+      system GTK 3 libraries and desktop.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">swt-terminal.desktop</launchable>
+  <url type="homepage">https://github.com/qmwd2006/swt-terminal</url>
+  <url type="bugtracker">https://github.com/qmwd2006/swt-terminal/issues</url>
+  <url type="vcs-browser">https://github.com/qmwd2006/swt-terminal</url>
+
+  <developer id="com.cleanssh">
+    <name>swt-terminal contributors</name>
+  </developer>
+
+  <categories>
+    <category>System</category>
+    <category>TerminalEmulator</category>
+  </categories>
+
+  <keywords>
+    <keyword>terminal</keyword>
+    <keyword>shell</keyword>
+    <keyword>console</keyword>
+    <keyword>command line</keyword>
+    <keyword>pty</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

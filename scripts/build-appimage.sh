@@ -1,5 +1,5 @@
 #!/bin/bash
-# Package the standalone terminal as an AppImage.
+# Package the standalone terminal as an AppImage and a FUSE-free tarball.
 #
 # Usage: scripts/build-appimage.sh <path-to-swt-terminal-checkout>
 #
@@ -10,8 +10,14 @@
 set -euo pipefail
 
 SRC="${1:-src}"
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 APP="swt-terminal.AppDir"
 DIST="dist"
+ARCH_NAME=x86_64
+APPIMAGETOOL_VERSION=1.9.1
+APPIMAGETOOL_SHA256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+RUNTIME_VERSION=20251108
+RUNTIME_SHA256=2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
 
 JAR=$(ls "$SRC"/target/swt-terminal-*-all.jar | head -n1)
 if [ -z "$JAR" ]; then
@@ -19,6 +25,8 @@ if [ -z "$JAR" ]; then
   exit 1
 fi
 VERSION=$(basename "$JAR" | sed 's/^swt-terminal-//; s/-all\.jar$//')
+VERSION_STRING="${APP_VERSION:-$VERSION}"
+APP_DATE="${APP_DATE:-$(date -u +%Y-%m-%d)}"
 
 rm -rf "$APP"
 mkdir -p "$APP/usr/lib/swt-terminal" "$DIST"
@@ -38,13 +46,11 @@ fi
   --strip-debug --no-man-pages --no-header-files --compress=2 \
   --output "$APP/usr/lib/runtime"
 
-# Icon: prefer the @2x variant, scaled up to the 256px AppImage convention.
-ICON="$SRC/eclipse-plugin/icons/terminal@2x.png"
-if [ -f "$ICON" ]; then
-  cp "$ICON" "$APP/swt-terminal.png"
-else
-  cp "$SRC/eclipse-plugin/icons/terminal.png" "$APP/swt-terminal.png"
-fi
+# Use the committed 256px asset: the source-tree icons are only 16px/32px and
+# upscaling them at build time would either blur them or depend on ImageMagick.
+install -Dm644 "$SCRIPT_DIR/swt-terminal-256.png" "$APP/swt-terminal.png"
+install -Dm644 "$SCRIPT_DIR/swt-terminal-256.png" \
+  "$APP/usr/share/icons/hicolor/256x256/apps/swt-terminal.png"
 
 cat > "$APP/AppRun" <<'EOF'
 #!/bin/sh
@@ -63,33 +69,88 @@ exec "$JAVA" -jar "$HERE/usr/lib/swt-terminal/swt-terminal.jar" "$@"
 EOF
 chmod +x "$APP/AppRun"
 
-# APP_VERSION is supplied by the workflow (e.g. v0.1.0-20261025-de49453);
-# fall back to the jar version so a manual run still produces valid metadata.
-VERSION_STRING="${APP_VERSION:-$VERSION}"
+# Keep a command named in the desktop file so extracted/hand-integrated AppDirs
+# work as well as AppImage-aware launchers.
+ln -s AppRun "$APP/swt-terminal"
 
-cat > "$APP/swt-terminal.desktop" <<EOF
+DESKTOP_FILE="$APP/swt-terminal.desktop"
+cat > "$DESKTOP_FILE" <<EOF
 [Desktop Entry]
+Version=1.0
 Type=Application
 Name=SWT Terminal
+GenericName=Terminal Emulator
 Comment=Terminal emulator (SWT) $VERSION_STRING
 Exec=swt-terminal
 Icon=swt-terminal
 Terminal=false
 Categories=System;TerminalEmulator;
+Keywords=terminal;shell;console;command line;pty;
+StartupNotify=true
 X-AppImage-Version=$VERSION_STRING
 EOF
+install -Dm644 "$DESKTOP_FILE" \
+  "$APP/usr/share/applications/swt-terminal.desktop"
+
+mkdir -p "$APP/usr/share/metainfo"
+APPSTREAM_FILE="$APP/usr/share/metainfo/com.cleanssh.swtterm.appdata.xml"
+sed -e "s|@VERSION@|$VERSION|g" -e "s|@DATE@|$APP_DATE|g" \
+  "$SCRIPT_DIR/com.cleanssh.swtterm.appdata.xml.in" \
+  > "$APPSTREAM_FILE"
+
+if command -v desktop-file-validate >/dev/null 2>&1; then
+  desktop-file-validate "$DESKTOP_FILE"
+else
+  echo "warning: desktop-file-validate not found; skipping desktop validation" >&2
+fi
+if command -v appstreamcli >/dev/null 2>&1; then
+  appstreamcli validate --no-net "$APPSTREAM_FILE"
+else
+  echo "warning: appstreamcli not found; skipping AppStream validation" >&2
+fi
 
 # Convenience copy of the version next to the jar, visible after
 # --appimage-extract and in the AppImage's usr/lib tree.
 printf '%s\n' "$VERSION_STRING" > "$APP/usr/lib/swt-terminal/version.txt"
 
-TOOL=appimagetool-x86_64.AppImage
+TOOL="appimagetool-$APPIMAGETOOL_VERSION-x86_64.AppImage"
 if [ ! -x "$TOOL" ]; then
-  wget -q -O "$TOOL" \
-    https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+  curl -fL --retry 3 --retry-delay 2 -o "$TOOL" \
+    "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-x86_64.AppImage"
   chmod +x "$TOOL"
 fi
+printf '%s  %s\n' "$APPIMAGETOOL_SHA256" "$TOOL" | sha256sum -c -
 
-# ARCH is normally derived from the build host; make it explicit for CI.
-ARCH=x86_64 ./"$TOOL" --appimage-extract-and-run "$APP" "$DIST/swt-terminal-$VERSION-x86_64.AppImage"
-echo "created $DIST/swt-terminal-$VERSION-x86_64.AppImage"
+RUNTIME="runtime-$ARCH_NAME-$RUNTIME_VERSION"
+if [ ! -f "$RUNTIME" ]; then
+  curl -fL --retry 3 --retry-delay 2 -o "$RUNTIME" \
+    "https://github.com/AppImage/type2-runtime/releases/download/$RUNTIME_VERSION/runtime-$ARCH_NAME"
+fi
+printf '%s  %s\n' "$RUNTIME_SHA256" "$RUNTIME" | sha256sum -c -
+
+APPIMAGE_NAME="swt-terminal-$VERSION-$ARCH_NAME.AppImage"
+UPDATE_INFO="gh-releases-zsync|qmwd2006|swt-terminal-release|latest|$APPIMAGE_NAME.zsync"
+
+# appimagetool writes the .zsync next to the output when zsyncmake is present.
+# Its own AppStream check calls validate-tree without --no-net, which can block
+# on restricted networks, so validate above and skip the internal check.
+ARCH=$ARCH_NAME ./"$TOOL" --appimage-extract-and-run -n \
+  --runtime-file "$RUNTIME" -u "$UPDATE_INFO" "$APP" "$DIST/$APPIMAGE_NAME"
+echo "created $DIST/$APPIMAGE_NAME"
+
+ZSYNC="$DIST/$APPIMAGE_NAME.zsync"
+if command -v zsyncmake >/dev/null 2>&1; then
+  if [ ! -f "$ZSYNC" ]; then
+    zsyncmake -q -u "$APPIMAGE_NAME" -o "$ZSYNC" "$DIST/$APPIMAGE_NAME"
+  fi
+  echo "created $ZSYNC"
+else
+  echo "warning: zsyncmake not found; skipping .zsync generation" >&2
+fi
+
+# FUSE-free fallback for systems that cannot mount AppImages. Keep the same
+# AppDir layout so AppRun, the icon and the desktop file remain usable.
+TARBALL="$DIST/swt-terminal-$VERSION-$ARCH_NAME.tar.gz"
+tar -C "$APP" --sort=name --owner=0 --group=0 --numeric-owner \
+  -czf "$TARBALL" .
+echo "created $TARBALL"

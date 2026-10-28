@@ -96,9 +96,11 @@ jobs:
         run: |
           sha=$(git rev-parse --short HEAD)
           date=$(git show -s --format=%cd --date=format:%Y%m%d HEAD)
+          appdate=$(git show -s --format=%cd --date=format:%Y-%m-%d HEAD)
           base=$(sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p' pom.xml | head -n1)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "date=$date" >> "$GITHUB_OUTPUT"
+          echo "appdate=$appdate" >> "$GITHUB_OUTPUT"
           echo "display=v${base}-${date}-${sha}" >> "$GITHUB_OUTPUT"
           echo "tag=v${base}-${date}-${sha}" >> "$GITHUB_OUTPUT"
 
@@ -132,8 +134,14 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential xvfb libgtk-3-0 \
-            || sudo apt-get install -y --no-install-recommends build-essential xvfb libgtk-3-0t64
+          sudo apt-get install -y --no-install-recommends build-essential xvfb \
+            zsync appstream desktop-file-utils file curl libgtk-3-0 \
+            || sudo apt-get install -y --no-install-recommends build-essential xvfb \
+              zsync appstream desktop-file-utils file curl libgtk-3-0t64
+          # Exercise the normal FUSE mount path as well as extract-and-run.
+          sudo apt-get install -y --no-install-recommends fuse3 || true
+          sudo apt-get install -y --no-install-recommends libfuse2 \
+            || sudo apt-get install -y --no-install-recommends libfuse2t64 || true
 
       - name: Build native library
         working-directory: src
@@ -166,6 +174,7 @@ jobs:
       - name: Build AppImage
         env:
           APP_VERSION: ${{ steps.ver.outputs.display }}
+          APP_DATE: ${{ steps.ver.outputs.appdate }}
         run: release/scripts/build-appimage.sh src
 
       - name: Collect artifacts
@@ -175,24 +184,49 @@ jobs:
           cp src/eclipse-plugin/target/com.cleanssh.swtterm.eclipse-*.jar dist/
           (cd dist && sha256sum swt-terminal-*-all.jar \
             swt-terminal-*-x86_64.AppImage \
+            swt-terminal-*-x86_64.AppImage.zsync \
+            swt-terminal-*-x86_64.tar.gz \
             com.cleanssh.swtterm.eclipse-*.jar > SHA256SUMS)
-          ls -la dist
+          ls -lh dist
 
       - name: Verify artifacts
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
-          APPIMAGE_EXTRACT_AND_RUN=1 dist/*.AppImage --version
+
+          appimage=$(echo dist/*.AppImage)
+          test -f dist/*-x86_64.AppImage.zsync
+          test -f dist/*-x86_64.tar.gz
+          APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --version
+          update=$("$appimage" --appimage-updateinfo)
+          echo "update information: $update"
+          case "$update" in
+            'gh-releases-zsync|qmwd2006|swt-terminal-release|latest|'*'.AppImage.zsync') ;;
+            *) echo "unexpected AppImage update information" >&2; exit 1 ;;
+          esac
+
+          rm -rf verify
+          mkdir verify
+          tar -xzf dist/*-x86_64.tar.gz -C verify
+          test -x verify/AppRun
+          test -L verify/swt-terminal
+          desktop-file-validate verify/usr/share/applications/swt-terminal.desktop
+          appstreamcli validate --no-net verify/usr/share/metainfo/com.cleanssh.swtterm.appdata.xml
+          file verify/swt-terminal.png | grep -q '256 x 256'
+
           # --version does not initialise SWT/GTK; start the real window under
-          # Xvfb and accept the timeout (124) as "it stayed alive".
-          set +e
-          timeout 8 xvfb-run -a -s "-screen 0 1024x768x24" \
-            env APPIMAGE_EXTRACT_AND_RUN=1 SHELL=/bin/sh dist/*.AppImage
-          code=$?
-          set -e
-          if [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
-            echo "AppImage failed to start (exit $code)" >&2
-            exit "$code"
-          fi
+          # Xvfb and accept the timeout (124) as "it stayed alive". Test both
+          # the normal FUSE mount and the FUSE-free tarball fallback.
+          for launcher in "$appimage" verify/AppRun; do
+            set +e
+            timeout 8 xvfb-run -a -s "-screen 0 1024x768x24" \
+              env SHELL=/bin/sh "$launcher"
+            code=$?
+            set -e
+            if [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
+              echo "$launcher failed to start (exit $code)" >&2
+              exit "$code"
+            fi
+          done
 
       # A short Chinese "Summary:" trailer in the commit message becomes the
       # release note; no raw commit list is shown.
@@ -238,10 +272,12 @@ jobs:
             echo
             echo "### Artifacts"
             echo
-            echo "- \`swt-terminal-*-x86_64.AppImage\` — standalone terminal (bundles a Java runtime; needs GTK 3)"
+            echo "- \`swt-terminal-*-x86_64.AppImage\` — standalone terminal (bundles a Java runtime; needs GTK 3 and FUSE)"
+            echo "- \`swt-terminal-*-x86_64.tar.gz\` — extracted fallback for systems without FUSE"
+            echo "- \`swt-terminal-*-x86_64.AppImage.zsync\` — update metadata for AppImageUpdate"
             echo "- \`com.cleanssh.swtterm.eclipse-*.jar\` — Eclipse plugin (Eclipse 4.29+; drop into \`dropins/\`)"
             echo "- \`swt-terminal-*-all.jar\` — standalone jar (needs Java 17+)"
-            echo "- \`SHA256SUMS\` — checksums for the three files above"
+            echo "- \`SHA256SUMS\` — checksums for the five files above"
           } > dist/RELEASE_NOTES.md
           cat dist/RELEASE_NOTES.md
 
@@ -271,6 +307,8 @@ jobs:
           body_path: dist/RELEASE_NOTES.md
           files: |
             dist/swt-terminal-*-x86_64.AppImage
+            dist/swt-terminal-*-x86_64.AppImage.zsync
+            dist/swt-terminal-*-x86_64.tar.gz
             dist/com.cleanssh.swtterm.eclipse-*.jar
             dist/swt-terminal-*-all.jar
             dist/SHA256SUMS
