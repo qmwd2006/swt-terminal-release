@@ -1,0 +1,25 @@
+name: Migrate release targets
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch one release target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag='v0.1.0-20261027-bbcad1b'
+          sha=$(git rev-parse "$tag^{commit}")
+          echo "stamp=$sha"
+          echo "before:"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" --jq '[.created_at,.published_at,.target_commitish]'
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" -f target_commitish="$sha" --jq '[.created_at,.published_at,.target_commitish]'
