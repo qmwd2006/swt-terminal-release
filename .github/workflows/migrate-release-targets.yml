@@ -13,13 +13,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Patch one release target
+      - name: Patch release target
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag='v0.1.0-20261027-bbcad1b'
           sha=$(git rev-parse "$tag^{commit}")
-          echo "stamp=$sha"
-          echo "before:"
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" --jq '.id')
+          echo "tag=$tag id=$id stamp=$sha"
           gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" --jq '[.created_at,.published_at,.target_commitish]'
-          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/tags/$tag" -f target_commitish="$sha" --jq '[.created_at,.published_at,.target_commitish]'
+          printf '{"target_commitish":"%s"}\n' "$sha" > /tmp/patch.json
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/$id" --input /tmp/patch.json --jq '[.created_at,.published_at,.target_commitish]'
