@@ -3,9 +3,10 @@
 #
 # Usage: scripts/build-appimage.sh <path-to-swt-terminal-checkout>
 #
-# The AppImage does not bundle a JRE: AppRun looks up `java` on PATH, so the
-# target machine needs Java 17 or newer. The jar is fully self-contained
-# otherwise (SWT and the pty native library are extracted from it at startup).
+# The AppImage bundles a jlink runtime, so the target machine does not need a
+# system JRE. The jar is also self-contained (SWT and the pty native library are
+# extracted from it at startup), but GTK 3 and an X11/Wayland desktop are still
+# required by SWT.
 set -euo pipefail
 
 SRC="${1:-src}"
@@ -23,6 +24,20 @@ rm -rf "$APP"
 mkdir -p "$APP/usr/lib/swt-terminal" "$DIST"
 cp "$JAR" "$APP/usr/lib/swt-terminal/swt-terminal.jar"
 
+# Bundle a minimal runtime. Keep this list aligned with what the terminal uses:
+# SWT (java.desktop + GTK JNI), AWT Desktop for links, ImageIO for images,
+# Preferences for window/font state, and Unsafe via jdk.unsupported.
+JAVA_BIN=$(command -v java)
+JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$JAVA_BIN")")")
+JLINK="$JAVA_HOME/bin/jlink"
+if [ ! -x "$JLINK" ]; then
+  echo "error: jlink not found under $JAVA_HOME (a JDK, not a JRE, is required)" >&2
+  exit 1
+fi
+"$JLINK" --add-modules java.base,java.desktop,java.logging,java.prefs,java.xml,jdk.unsupported \
+  --strip-debug --no-man-pages --no-header-files --compress=2 \
+  --output "$APP/usr/lib/runtime"
+
 # Icon: prefer the @2x variant, scaled up to the 256px AppImage convention.
 ICON="$SRC/eclipse-plugin/icons/terminal@2x.png"
 if [ -f "$ICON" ]; then
@@ -33,14 +48,18 @@ fi
 
 cat > "$APP/AppRun" <<'EOF'
 #!/bin/sh
-# Resolve the AppImage mount point and run the bundled jar with the system JRE.
+# Prefer the bundled jlink runtime; fall back to a system JRE for hand-built
+# AppDirs made before bundling was added.
 HERE=$(dirname "$(readlink -f "$0")")
-if ! command -v java >/dev/null 2>&1; then
-  echo "swt-terminal needs Java 17 or newer on PATH but 'java' was not found." >&2
-  echo "Install a JRE (e.g. 'sudo apt install openjdk-17-jre') and try again." >&2
-  exit 1
+JAVA="$HERE/usr/lib/runtime/bin/java"
+if [ ! -x "$JAVA" ]; then
+  if ! command -v java >/dev/null 2>&1; then
+    echo "swt-terminal needs Java 17 or newer but no runtime was found." >&2
+    exit 1
+  fi
+  JAVA=java
 fi
-exec java -jar "$HERE/usr/lib/swt-terminal/swt-terminal.jar" "$@"
+exec "$JAVA" -jar "$HERE/usr/lib/swt-terminal/swt-terminal.jar" "$@"
 EOF
 chmod +x "$APP/AppRun"
 

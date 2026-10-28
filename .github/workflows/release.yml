@@ -24,7 +24,7 @@ jobs:
     steps:
       # This repository: provides scripts/build-appimage.sh.
       - name: Checkout release scripts
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: release
           # Tags list is needed to find the previous release for the changelog.
@@ -41,7 +41,7 @@ jobs:
           echo "before=${{ github.event.client_payload.before }}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: qmwd2006/swt-terminal
           ref: ${{ steps.src.outputs.ref }}
@@ -116,7 +116,7 @@ jobs:
           fi
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -172,6 +172,9 @@ jobs:
           mkdir -p dist
           cp src/target/swt-terminal-*-all.jar dist/
           cp src/eclipse-plugin/target/com.cleanssh.swtterm.eclipse-*.jar dist/
+          (cd dist && sha256sum swt-terminal-*-all.jar \
+            swt-terminal-*-x86_64.AppImage \
+            com.cleanssh.swtterm.eclipse-*.jar > SHA256SUMS)
           ls -la dist
 
       # A short Chinese "Summary:" trailer in the commit message becomes the
@@ -218,9 +221,10 @@ jobs:
             echo
             echo "### Artifacts"
             echo
-            echo "- \`swt-terminal-*-x86_64.AppImage\` — standalone terminal (needs Java 17+ on PATH)"
+            echo "- \`swt-terminal-*-x86_64.AppImage\` — standalone terminal (bundles a Java runtime; needs GTK 3)"
             echo "- \`com.cleanssh.swtterm.eclipse-*.jar\` — Eclipse plugin (Eclipse 4.29+; drop into \`dropins/\`)"
             echo "- \`swt-terminal-*-all.jar\` — standalone jar (needs Java 17+)"
+            echo "- \`SHA256SUMS\` — checksums for the three files above"
           } > dist/RELEASE_NOTES.md
           cat dist/RELEASE_NOTES.md
 
@@ -252,3 +256,4 @@ jobs:
             dist/swt-terminal-*-x86_64.AppImage
             dist/com.cleanssh.swtterm.eclipse-*.jar
             dist/swt-terminal-*-all.jar
+            dist/SHA256SUMS

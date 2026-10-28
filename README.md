@@ -13,25 +13,23 @@ Each release contains three files:
 
 | File | What it is |
 | --- | --- |
-| `swt-terminal-<ver>-x86_64.AppImage` | Standalone terminal. **Needs Java 17+ on `PATH`.** |
+| `swt-terminal-<ver>-x86_64.AppImage` | Standalone terminal. Bundles a Java runtime (GTK 3 still required). |
 | `com.cleanssh.swtterm.eclipse-<ver>.jar` | Eclipse plugin. **Eclipse 4.29 (2023-09) or newer.** |
 | `swt-terminal-<ver>-all.jar` | Standalone jar. **Needs Java 17+.** |
+| `SHA256SUMS` | SHA-256 checksums for the three files above. |
 
 ## Standalone AppImage
 
 ```bash
+sha256sum -c SHA256SUMS
 chmod +x swt-terminal-*-x86_64.AppImage
 ./swt-terminal-*-x86_64.AppImage
 ```
 
-The AppImage does not bundle a JRE. If `java` is missing:
-
-```bash
-sudo apt install openjdk-17-jre
-```
-
-The jar inside carries SWT and the pty native library, and extracts them at
-startup, so no further setup is needed.
+The AppImage bundles a jlink runtime, so no system Java installation is needed.
+SWT still requires GTK 3 and an X11/Wayland desktop. The jar inside carries SWT
+and the pty native library, and extracts them at startup, so no further setup is
+needed.
 
 ## Eclipse plugin
 
