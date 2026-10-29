@@ -13,43 +13,61 @@ Each release contains these files:
 
 | File | What it is |
 | --- | --- |
-| `swt-terminal-<ver>-x86_64.AppImage` | Standalone terminal. Bundles a Java runtime (GTK 3 and FUSE still required). |
+| `swt-terminal-<ver>-x86_64.AppImage` | Standalone terminal. Bundles a Java 17 runtime (~35 MB; GTK 3 and FUSE still required). |
 | `swt-terminal-<ver>-x86_64.tar.gz` | The same AppDir, extracted. Use this when AppImage/FUSE cannot run. |
 | `swt-terminal-<ver>-x86_64.AppImage.zsync` | Update metadata for AppImageUpdate. |
+| `swt-terminal-<ver>-x86_64-small.AppImage` | Standalone terminal without a bundled runtime (~2.5 MB). **Needs Java 17+** (GTK 3 and FUSE still required). |
+| `swt-terminal-<ver>-x86_64-small.tar.gz` | The small AppDir, extracted. Use this when AppImage/FUSE cannot run. |
+| `swt-terminal-<ver>-x86_64-small.AppImage.zsync` | Update metadata for the small build. |
 | `com.cleanssh.swtterm.eclipse-<ver>.jar` | Eclipse plugin. **Eclipse 4.29 (2023-09) or newer.** |
 | `swt-terminal-<ver>-all.jar` | Standalone jar. **Needs Java 17+.** |
-| `SHA256SUMS` | SHA-256 checksums for the five other files. |
+| `SHA256SUMS` | SHA-256 checksums for the eight other files. |
 
 ## Standalone AppImage
 
+Each release ships two builds of the same application:
+
+- `swt-terminal-*-x86_64.AppImage` bundles a jlink Java 17 runtime (~35 MB), so
+  no system Java installation is needed.
+- `swt-terminal-*-x86_64-small.AppImage` leaves the runtime out (~2.5 MB) and
+  uses the `java` found on `PATH`; **Java 17+ is required**.
+
+Both still need GTK 3 and an X11/Wayland desktop. The jar inside carries SWT and
+the pty native library, and extracts them at startup, so no further setup is
+needed.
+
 ```bash
 sha256sum -c SHA256SUMS
-chmod +x swt-terminal-*-x86_64.AppImage
+chmod +x swt-terminal-*-x86_64.AppImage        # bundled runtime
 ./swt-terminal-*-x86_64.AppImage
 ```
 
-The AppImage bundles a jlink runtime, so no system Java installation is needed.
-SWT still requires GTK 3 and an X11/Wayland desktop. The jar inside carries SWT
-and the pty native library, and extracts them at startup, so no further setup is
-needed.
+Or, on a machine with Java 17+:
 
-The AppImage includes AppStream metadata and a 256 px icon, so desktop
-environments can integrate it. It also carries zsync update information that
-matches any versioned AppImage in the latest release, so AppImageUpdate keeps
+```bash
+chmod +x swt-terminal-*-x86_64-small.AppImage
+./swt-terminal-*-x86_64-small.AppImage
+```
+
+Both builds include AppStream metadata and a 256 px icon, so desktop
+environments can integrate them. Each carries its own zsync update information
+(the small build updates from the `-small` asset), so AppImageUpdate keeps
 working after the application version changes.
 
 ### No FUSE?
 
-If the AppImage cannot mount because FUSE is unavailable, extract the tarball
-instead:
+If the AppImage cannot mount because FUSE is unavailable, extract the matching
+tarball instead:
 
 ```bash
-tar -xzf swt-terminal-*-x86_64.tar.gz
+tar -xzf swt-terminal-*-x86_64.tar.gz        # bundled runtime
+# or
+tar -xzf swt-terminal-*-x86_64-small.tar.gz  # needs Java 17+
 ./AppRun
 ```
 
-`AppRun` and the `swt-terminal` symlink are both executable and use the bundled
-runtime.
+`AppRun` and the `swt-terminal` symlink are both executable. The full tarball
+uses the bundled runtime; the small one uses the system Java.
 
 ## Eclipse plugin
 
@@ -89,12 +107,15 @@ read-only deploy key, then runs:
 mvn verify -Pintegration     # unit + real-PTY tests
 mvn package -DskipTests      # standalone jar
 cd eclipse-plugin && mvn verify
-scripts/build-appimage.sh src
+scripts/build-appimage.sh src                  # full build, bundles a jlink runtime
+APPIMAGE_VARIANT=small BUNDLE_RUNTIME=0 \
+  scripts/build-appimage.sh src                # small build, uses system Java
 ```
 
 The AppImage build pins both `appimagetool` and the type-2 runtime by SHA-256.
-It validates the desktop file and AppStream metadata, generates a 256 px icon,
-publishes a tar.gz fallback, and embeds GitHub Releases zsync update information.
+It builds both variants from the same AppDir logic, validates the desktop file
+and AppStream metadata, generates a 256 px icon, publishes a tar.gz fallback for
+each variant, and embeds per-variant GitHub Releases zsync update information.
 
 The Eclipse plugin's target platform resolves against the official online p2
 repository for 2024-03 (Eclipse 4.31), so no local Eclipse is required.

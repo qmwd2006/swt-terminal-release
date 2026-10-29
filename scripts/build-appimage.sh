@@ -4,9 +4,15 @@
 # Usage: scripts/build-appimage.sh <path-to-swt-terminal-checkout>
 #
 # The AppImage bundles a jlink runtime, so the target machine does not need a
-# system JRE. The jar is also self-contained (SWT and the pty native library are
-# extracted from it at startup), but GTK 3 and an X11/Wayland desktop are still
-# required by SWT.
+# system JRE. Set BUNDLE_RUNTIME=0 to build the "small" variant instead, which
+# omits the runtime and falls back to a system Java 17+ at startup. The jar is
+# also self-contained (SWT and the pty native library are extracted from it at
+# startup), but GTK 3 and an X11/Wayland desktop are still required by SWT.
+#
+# APPIMAGE_VARIANT adds a suffix to the artifact names. Keep the suffix after
+# the architecture ("-x86_64-small") so the two AppImageUpdate globs stay
+# disjoint: swt-terminal-*-x86_64.AppImage.zsync vs
+# swt-terminal-*-x86_64-small.AppImage.zsync.
 set -euo pipefail
 
 SRC="${1:-src}"
@@ -14,6 +20,8 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 APP="swt-terminal.AppDir"
 DIST="dist"
 ARCH_NAME=x86_64
+BUNDLE_RUNTIME="${BUNDLE_RUNTIME:-1}"
+APPIMAGE_VARIANT="${APPIMAGE_VARIANT:-}"
 APPIMAGETOOL_VERSION=1.9.1
 APPIMAGETOOL_SHA256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
 RUNTIME_VERSION=20251108
@@ -35,16 +43,18 @@ cp "$JAR" "$APP/usr/lib/swt-terminal/swt-terminal.jar"
 # Bundle a minimal runtime. Keep this list aligned with what the terminal uses:
 # SWT (java.desktop + GTK JNI), AWT Desktop for links, ImageIO for images,
 # Preferences for window/font state, and Unsafe via jdk.unsupported.
-JAVA_BIN=$(command -v java)
-JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$JAVA_BIN")")")
-JLINK="$JAVA_HOME/bin/jlink"
-if [ ! -x "$JLINK" ]; then
-  echo "error: jlink not found under $JAVA_HOME (a JDK, not a JRE, is required)" >&2
-  exit 1
+if [ "$BUNDLE_RUNTIME" = 1 ]; then
+  JAVA_BIN=$(command -v java)
+  JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$JAVA_BIN")")")
+  JLINK="$JAVA_HOME/bin/jlink"
+  if [ ! -x "$JLINK" ]; then
+    echo "error: jlink not found under $JAVA_HOME (a JDK, not a JRE, is required)" >&2
+    exit 1
+  fi
+  "$JLINK" --add-modules java.base,java.desktop,java.logging,java.prefs,java.xml,jdk.unsupported \
+    --strip-debug --no-man-pages --no-header-files --compress=2 \
+    --output "$APP/usr/lib/runtime"
 fi
-"$JLINK" --add-modules java.base,java.desktop,java.logging,java.prefs,java.xml,jdk.unsupported \
-  --strip-debug --no-man-pages --no-header-files --compress=2 \
-  --output "$APP/usr/lib/runtime"
 
 # Use the committed 256px asset: the source-tree icons are only 16px/32px and
 # upscaling them at build time would either blur them or depend on ImageMagick.
@@ -54,8 +64,8 @@ install -Dm644 "$SCRIPT_DIR/swt-terminal-256.png" \
 
 cat > "$APP/AppRun" <<'EOF'
 #!/bin/sh
-# Prefer the bundled jlink runtime; fall back to a system JRE for hand-built
-# AppDirs made before bundling was added.
+# Prefer the bundled jlink runtime; fall back to a system JRE in the small
+# variant and in hand-built AppDirs made before bundling was added.
 HERE=$(dirname "$(readlink -f "$0")")
 JAVA="$HERE/usr/lib/runtime/bin/java"
 if [ ! -x "$JAVA" ]; then
@@ -128,8 +138,9 @@ if [ ! -f "$RUNTIME" ]; then
 fi
 printf '%s  %s\n' "$RUNTIME_SHA256" "$RUNTIME" | sha256sum -c -
 
-APPIMAGE_NAME="swt-terminal-$VERSION_STRING-$ARCH_NAME.AppImage"
-UPDATE_INFO="gh-releases-zsync|qmwd2006|swt-terminal-release|latest|swt-terminal-*-$ARCH_NAME.AppImage.zsync"
+SUFFIX="${APPIMAGE_VARIANT:+-$APPIMAGE_VARIANT}"
+APPIMAGE_NAME="swt-terminal-$VERSION_STRING-$ARCH_NAME$SUFFIX.AppImage"
+UPDATE_INFO="gh-releases-zsync|qmwd2006|swt-terminal-release|latest|swt-terminal-*-$ARCH_NAME$SUFFIX.AppImage.zsync"
 
 # appimagetool writes the .zsync next to the output when zsyncmake is present.
 # Its own AppStream check calls validate-tree without --no-net, which can block
@@ -150,7 +161,7 @@ fi
 
 # FUSE-free fallback for systems that cannot mount AppImages. Keep the same
 # AppDir layout so AppRun, the icon and the desktop file remain usable.
-TARBALL="$DIST/swt-terminal-$VERSION_STRING-$ARCH_NAME.tar.gz"
+TARBALL="$DIST/swt-terminal-$VERSION_STRING-$ARCH_NAME$SUFFIX.tar.gz"
 tar -C "$APP" --sort=name --owner=0 --group=0 --numeric-owner \
   -czf "$TARBALL" .
 echo "created $TARBALL"

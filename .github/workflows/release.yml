@@ -171,11 +171,14 @@ jobs:
         env:
           APP_VERSION: ${{ steps.ver.outputs.display }}
 
-      - name: Build AppImage
+      - name: Build AppImages
         env:
           APP_VERSION: ${{ steps.ver.outputs.display }}
           APP_DATE: ${{ steps.ver.outputs.appdate }}
-        run: release/scripts/build-appimage.sh src
+        run: |
+          release/scripts/build-appimage.sh src
+          APPIMAGE_VARIANT=small BUNDLE_RUNTIME=0 \
+            release/scripts/build-appimage.sh src
 
       - name: Collect artifacts
         run: |
@@ -186,6 +189,9 @@ jobs:
             swt-terminal-*-x86_64.AppImage \
             swt-terminal-*-x86_64.AppImage.zsync \
             swt-terminal-*-x86_64.tar.gz \
+            swt-terminal-*-x86_64-small.AppImage \
+            swt-terminal-*-x86_64-small.AppImage.zsync \
+            swt-terminal-*-x86_64-small.tar.gz \
             com.cleanssh.swtterm.eclipse-*.jar > SHA256SUMS)
           ls -lh dist
 
@@ -193,31 +199,43 @@ jobs:
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
 
-          appimage=$(echo dist/*.AppImage)
+          full=$(echo dist/*-x86_64.AppImage)
+          small=$(echo dist/*-x86_64-small.AppImage)
           test -f dist/*-x86_64.AppImage.zsync
+          test -f dist/*-x86_64-small.AppImage.zsync
           test -f dist/*-x86_64.tar.gz
-          APPIMAGE_EXTRACT_AND_RUN=1 "$appimage" --version
-          update=$("$appimage" --appimage-updateinfo)
-          echo "update information: $update"
-          expected='gh-releases-zsync|qmwd2006|swt-terminal-release|latest|swt-terminal-*-x86_64.AppImage.zsync'
-          if [ "$update" != "$expected" ]; then
-            echo "unexpected AppImage update information: $update" >&2
-            exit 1
-          fi
+          test -f dist/*-x86_64-small.tar.gz
+          APPIMAGE_EXTRACT_AND_RUN=1 "$full" --version
+          APPIMAGE_EXTRACT_AND_RUN=1 "$small" --version
 
-          rm -rf verify
-          mkdir verify
-          tar -xzf dist/*-x86_64.tar.gz -C verify
-          test -x verify/AppRun
-          test -L verify/swt-terminal
-          desktop-file-validate verify/usr/share/applications/swt-terminal.desktop
-          appstreamcli validate --no-net verify/usr/share/metainfo/com.cleanssh.swtterm.appdata.xml
-          file verify/swt-terminal.png | grep -q '256 x 256'
+          check_update_info() {
+            expected="gh-releases-zsync|qmwd2006|swt-terminal-release|latest|swt-terminal-*-$2.AppImage.zsync"
+            actual=$("$1" --appimage-updateinfo)
+            echo "update information ($1): $actual"
+            if [ "$actual" != "$expected" ]; then
+              echo "unexpected update information for $1: $actual" >&2
+              exit 1
+            fi
+          }
+          check_update_info "$full" x86_64
+          check_update_info "$small" x86_64-small
+
+          rm -rf verify-full verify-small
+          mkdir verify-full verify-small
+          tar -xzf dist/*-x86_64.tar.gz -C verify-full
+          tar -xzf dist/*-x86_64-small.tar.gz -C verify-small
+          for dir in verify-full verify-small; do
+            test -x "$dir/AppRun"
+            test -L "$dir/swt-terminal"
+            desktop-file-validate "$dir/usr/share/applications/swt-terminal.desktop"
+            appstreamcli validate --no-net "$dir/usr/share/metainfo/com.cleanssh.swtterm.appdata.xml"
+            file "$dir/swt-terminal.png" | grep -q '256 x 256'
+          done
 
           # --version does not initialise SWT/GTK; start the real window under
           # Xvfb and accept the timeout (124) as "it stayed alive". Test both
-          # the normal FUSE mount and the FUSE-free tarball fallback.
-          for launcher in "$appimage" verify/AppRun; do
+          # AppImages and both FUSE-free tarball fallbacks.
+          for launcher in "$full" "$small" verify-full/AppRun verify-small/AppRun; do
             set +e
             timeout 8 xvfb-run -a -s "-screen 0 1024x768x24" \
               env SHELL=/bin/sh "$launcher"
@@ -276,9 +294,12 @@ jobs:
             echo "- \`swt-terminal-*-x86_64.AppImage\` — standalone terminal (bundles a Java runtime; needs GTK 3 and FUSE)"
             echo "- \`swt-terminal-*-x86_64.tar.gz\` — extracted fallback for systems without FUSE"
             echo "- \`swt-terminal-*-x86_64.AppImage.zsync\` — update metadata for AppImageUpdate"
+            echo "- \`swt-terminal-*-x86_64-small.AppImage\` — standalone terminal without a bundled runtime (needs Java 17+; GTK 3 and FUSE)"
+            echo "- \`swt-terminal-*-x86_64-small.tar.gz\` — extracted fallback for the small build"
+            echo "- \`swt-terminal-*-x86_64-small.AppImage.zsync\` — update metadata for the small build"
             echo "- \`com.cleanssh.swtterm.eclipse-*.jar\` — Eclipse plugin (Eclipse 4.29+; drop into \`dropins/\`)"
             echo "- \`swt-terminal-*-all.jar\` — standalone jar (needs Java 17+)"
-            echo "- \`SHA256SUMS\` — checksums for the five files above"
+            echo "- \`SHA256SUMS\` — checksums for the eight files above"
           } > dist/RELEASE_NOTES.md
           cat dist/RELEASE_NOTES.md
 
@@ -310,6 +331,9 @@ jobs:
             dist/swt-terminal-*-x86_64.AppImage
             dist/swt-terminal-*-x86_64.AppImage.zsync
             dist/swt-terminal-*-x86_64.tar.gz
+            dist/swt-terminal-*-x86_64-small.AppImage
+            dist/swt-terminal-*-x86_64-small.AppImage.zsync
+            dist/swt-terminal-*-x86_64-small.tar.gz
             dist/com.cleanssh.swtterm.eclipse-*.jar
             dist/swt-terminal-*-all.jar
             dist/SHA256SUMS

@@ -12,8 +12,9 @@
       CJK-aware layout and a real PTY.
     </p>
     <p>
-      It bundles its own Java runtime in the AppImage, but still uses the
-      system GTK 3 libraries and desktop.
+      The main AppImage bundles its own Java runtime; a smaller build is also
+      available for systems with Java 17 or newer. Both still use the system
+      GTK 3 libraries and desktop.
     </p>
   </description>
 
