@@ -137,10 +137,14 @@ jobs:
 
       # The previous release tag lives in this repository (the source commit is
       # in src/), so resolve it here and let the notes step use its sha.
+      # A re-run of an already released commit reuses its tag, so skip that tag:
+      # comparing it against itself yields an empty changelog ("routine build").
       - name: Find previous release
         id: prev
         run: |
-          prev=$(git -C release tag --list 'v*' --sort=-creatordate | head -n1)
+          current='${{ steps.ver.outputs.tag }}'
+          prev=$(git -C release tag --list 'v*' --sort=-creatordate \
+            | grep -vxF -- "$current" | head -n1 || true)
           echo "tag=$prev" >> "$GITHUB_OUTPUT"
           if [ -n "$prev" ]; then
             echo "sha=${prev##*-}" >> "$GITHUB_OUTPUT"
