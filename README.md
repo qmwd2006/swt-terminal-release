@@ -7,6 +7,22 @@ artifacts).
 Every push to the source repository triggers a build here via
 `repository_dispatch`. Builds can also be started manually from the Actions tab.
 
+## Version scheme
+
+Tags look like `v0.1.0-20261029-003-143caee`:
+
+- `0.1.0` is the Maven base version;
+- `20261029` is the source commit date (`YYYYMMDD`);
+- `003` is the day's release sequence, zero-padded to three digits, so several
+  releases in one day stay ordered and unique;
+- `143caee` is the source commit (`git rev-parse --short`).
+
+The sequence counts the releases already published for that commit date and
+starts at `001`. Re-running the workflow for a commit that was already released
+reuses its sequence, so a retry never creates a second version. Artifact names,
+the release title, `--version` and the Eclipse `Bundle-Version`
+(`0.1.0.20261029-003-143caee`) all carry the same string.
+
 ## Downloads
 
 Each release contains these files:
@@ -19,7 +35,7 @@ Each release contains these files:
 | `swt-terminal-<ver>-x86_64-small.AppImage` | Standalone terminal without a bundled runtime (~2.5 MB). **Needs Java 17+** (GTK 3 and FUSE still required). |
 | `swt-terminal-<ver>-x86_64-small.tar.gz` | The small AppDir, extracted. Use this when AppImage/FUSE cannot run. |
 | `swt-terminal-<ver>-x86_64-small.AppImage.zsync` | Update metadata for the small build. |
-| `com.cleanssh.swtterm.eclipse-<ver>.jar` | Eclipse plugin. **Eclipse 4.29 (2023-09) or newer.** |
+| `com.cleanssh.swtterm.eclipse-0.1.0.<date>-<seq>-<sha>.jar` | Eclipse plugin, named after its `Bundle-Version`. **Eclipse 4.29 (2023-09) or newer.** |
 | `swt-terminal-<ver>-all.jar` | Standalone jar. **Needs Java 17+.** |
 | `SHA256SUMS` | SHA-256 checksums for the eight other files. |
 

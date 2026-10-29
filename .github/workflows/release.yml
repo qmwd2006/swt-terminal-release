@@ -88,21 +88,46 @@ jobs:
           done
           echo "Timed out waiting for the release of $short; continuing." >&2
 
-      # Version data: short SHA, commit date and the CI build number, passed to
-      # Maven so the jar and plugin report the same string as the release.
+      # Version data: short SHA, commit date, the day's release sequence and the
+      # CI build number, passed to Maven so the jar and plugin report the same
+      # string as the release.
+      #
+      # The tag is v<base>-<YYYYMMDD>-<NNN>-<sha>, where NNN is the number of
+      # releases already made for that commit date (three digits). Releases are
+      # serialised above, so fetching the tags here sees the previous run's tag
+      # and the count is stable. A re-run of an already released commit reuses
+      # its sequence instead of inventing a new version.
       - name: Resolve version
         id: ver
         working-directory: src
         run: |
+          git -C ../release fetch --tags --force --quiet
           sha=$(git rev-parse --short HEAD)
           date=$(git show -s --format=%cd --date=format:%Y%m%d HEAD)
           appdate=$(git show -s --format=%cd --date=format:%Y-%m-%d HEAD)
           base=$(sed -n 's:.*<version>\([^<]*\)</version>.*:\1:p' pom.xml | head -n1)
+          prefix="v${base}-${date}-"
+          released=$(git -C ../release tag --list "${prefix}[0-9][0-9][0-9]*-${sha}" | head -n1)
+          if [ -n "$released" ]; then
+            seq=${released#"${prefix}"}
+            seq=${seq%%-*}
+            echo "Reusing sequence $seq of $released for $sha."
+          else
+            count=$(git -C ../release tag --list "${prefix}*" | wc -l)
+            seq=$(printf '%03d' $((count + 1)))
+            echo "$count release(s) for $date; this one is $seq."
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
           echo "date=$date" >> "$GITHUB_OUTPUT"
           echo "appdate=$appdate" >> "$GITHUB_OUTPUT"
-          echo "display=v${base}-${date}-${sha}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${base}-${date}-${sha}" >> "$GITHUB_OUTPUT"
+          echo "seq=$seq" >> "$GITHUB_OUTPUT"
+          echo "display=${prefix}${seq}-${sha}" >> "$GITHUB_OUTPUT"
+          echo "tag=${prefix}${seq}-${sha}" >> "$GITHUB_OUTPUT"
+          # OSGi qualifiers may only use [A-Za-z0-9_-]; the tag string is
+          # otherwise identical, so the plugin version carries the date,
+          # the day's sequence and the commit too.
+          echo "qualifier=${date}-${seq}-${sha}" >> "$GITHUB_OUTPUT"
 
       # The previous release tag lives in this repository (the source commit is
       # in src/), so resolve it here and let the notes step use its sha.
@@ -153,6 +178,7 @@ jobs:
           mvn -B verify -Pintegration
           -Dapp.commit=${{ steps.ver.outputs.sha }}
           -Dapp.commitDate=${{ steps.ver.outputs.date }}
+          -Dapp.display=${{ steps.ver.outputs.display }}
           -Dapp.build=${{ github.run_number }}
 
       # install (not package): the plugin build unpacks the shaded jar from the
@@ -163,13 +189,14 @@ jobs:
           mvn -B install -DskipTests
           -Dapp.commit=${{ steps.ver.outputs.sha }}
           -Dapp.commitDate=${{ steps.ver.outputs.date }}
+          -Dapp.display=${{ steps.ver.outputs.display }}
           -Dapp.build=${{ github.run_number }}
 
       - name: Build Eclipse plugin
         working-directory: src/eclipse-plugin
-        run: mvn -B verify
-        env:
-          APP_VERSION: ${{ steps.ver.outputs.display }}
+        run: >-
+          mvn -B verify
+          -DforceContextQualifier=${{ steps.ver.outputs.qualifier }}
 
       - name: Build AppImages
         env:
@@ -183,8 +210,16 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p dist
-          cp src/target/swt-terminal-*-all.jar dist/
-          cp src/eclipse-plugin/target/com.cleanssh.swtterm.eclipse-*.jar dist/
+          # All published files carry the release version. The jars are built
+          # under Maven artifact versions, so rename them here rather than
+          # inventing date qualifiers in the poms. The plugin name matches its
+          # Bundle-Version (0.1.0.<date>-<seq>-<sha>).
+          display='${{ steps.ver.outputs.display }}'
+          base='${{ steps.ver.outputs.base }}'
+          qualifier='${{ steps.ver.outputs.qualifier }}'
+          cp src/target/swt-terminal-*-all.jar "dist/swt-terminal-${display}-all.jar"
+          cp src/eclipse-plugin/target/com.cleanssh.swtterm.eclipse-*.jar \
+            "dist/com.cleanssh.swtterm.eclipse-${base}.${qualifier}.jar"
           (cd dist && sha256sum swt-terminal-*-all.jar \
             swt-terminal-*-x86_64.AppImage \
             swt-terminal-*-x86_64.AppImage.zsync \
@@ -198,6 +233,17 @@ jobs:
       - name: Verify artifacts
         run: |
           (cd dist && sha256sum -c SHA256SUMS)
+
+          # Every artifact reports the same version as the tag.
+          display='${{ steps.ver.outputs.display }}'
+          base='${{ steps.ver.outputs.base }}'
+          qualifier='${{ steps.ver.outputs.qualifier }}'
+          test -f "dist/swt-terminal-${display}-all.jar"
+          unzip -p "dist/swt-terminal-${display}-all.jar" version.properties \
+            | grep -qx "display=${display}"
+          unzip -p "dist/com.cleanssh.swtterm.eclipse-${base}.${qualifier}.jar" \
+              META-INF/MANIFEST.MF \
+            | tr -d '\r' | grep -qx "Bundle-Version: ${base}.${qualifier}"
 
           full=$(echo dist/*-x86_64.AppImage)
           small=$(echo dist/*-x86_64-small.AppImage)
@@ -325,7 +371,7 @@ jobs:
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           target_commitish: ${{ steps.stamp.outputs.sha }}
-          name: swt-terminal ${{ steps.ver.outputs.display }} (build ${{ github.run_number }})
+          name: swt-terminal ${{ steps.ver.outputs.display }}
           body_path: dist/RELEASE_NOTES.md
           files: |
             dist/swt-terminal-*-x86_64.AppImage
