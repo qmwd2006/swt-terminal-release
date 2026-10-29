@@ -113,9 +113,15 @@ jobs:
             seq=${seq%%-*}
             echo "Reusing sequence $seq of $released for $sha."
           else
-            count=$(git -C ../release tag --list "${prefix}*" | wc -l)
-            seq=$(printf '%03d' $((count + 1)))
-            echo "$count release(s) for $date; this one is $seq."
+            # Continue after the highest sequence in use. Counting tags would
+            # reuse numbers once old releases are deleted, so take the maximum
+            # and add one.
+            last=$(git -C ../release tag --list "${prefix}*" \
+              | sed -n "s:^${prefix}\\([0-9][0-9][0-9]*\\)-.*:\\1:p" \
+              | sort -n | tail -n1)
+            # 10# forces decimal: a bare 014 would be octal in shell arithmetic.
+            seq=$(printf '%03d' $(( 10#${last:-0} + 1 )))
+            echo "Highest sequence for $date is ${last:-none}; this one is $seq."
           fi
           echo "base=$base" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"

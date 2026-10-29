@@ -17,10 +17,11 @@ Tags look like `v0.1.0-20261029-003-143caee`:
   releases in one day stay ordered and unique;
 - `143caee` is the source commit (`git rev-parse --short`).
 
-The sequence counts the releases already published for that commit date and
-starts at `001`. Re-running the workflow for a commit that was already released
-reuses its sequence, so a retry never creates a second version. Artifact names,
-the release title, `--version` and the Eclipse `Bundle-Version`
+The sequence starts at `001` for a commit date and always continues after the
+highest number already published, so deleting old releases never reuses a
+number. Re-running the workflow for a commit that was already released reuses
+its sequence, so a retry never creates a second version. Artifact names, the
+release title, `--version` and the Eclipse `Bundle-Version`
 (`0.1.0.20261029-003-143caee`) all carry the same string.
 
 ## Downloads
